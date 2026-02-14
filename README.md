@@ -15,12 +15,14 @@ Do **not** use them directly in a live environment. Please configure your own IP
   <a href="#siem"><img src="https://img.shields.io/badge/SIEM-ELK%20|%20Splunk-green?style=for-the-badge&logo=elastic"/></a>
   <a href="#threat-intelligence"><img src="https://img.shields.io/badge/Threat%20Intel-MISP-red?style=for-the-badge"/></a>
   <a href="#attack-defense"><img src="https://img.shields.io/badge/MITRE-ATT%26CK-orange?style=for-the-badge"/></a>
-  <a href="#red-team"><img src="https://img.shields.io/badge/Purple%20Team-Validated-purple?style=for-the-badge"/></a>
+  <a href="#validation"><img src="https://img.shields.io/badge/Defense-Validation%20%26%20Testing-lightgrey?style=for-the-badge"/></a>
 </p>
 
+
 <p align="center">
-  <b>Production-Grade Cybersecurity Lab for Enterprise SOC Operations, Detection Engineering, and Purple Team Validation</b>
+  <b>Production-Grade Enterprise SOC Lab for Blue Team Operations, Detection Engineering, and Security Control Validation</b>
 </p>
+
 
 ---
 
