@@ -5,9 +5,7 @@
 All IP addresses and network configurations in this project (code, diagrams, screenshots, and documentation) are **placeholders**.
 Do **not** use them directly in a live environment. Please configure your own IPs before running the project.
 
-<p align="center">
-  <img src="assets/diagrams/lab-banner-v2.png" alt="Enterprise SOC Lab" width="900"/>
-</p>
+<img src="https://raw.githubusercontent.com/Maher-Mansour-CyberSec/Enterprise_SOC_BlueTeam_Operations/main/assets/diagrams/lab-banner-v2.png" width="900">
 
 <p align="center">
   <a href="#architecture"><img src="https://img.shields.io/badge/Architecture-Enterprise-blue?style=for-the-badge&logo=vmware"/></a>
