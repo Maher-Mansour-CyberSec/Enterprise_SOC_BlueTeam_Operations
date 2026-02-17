@@ -6,7 +6,7 @@ All IP addresses and network configurations in this project (code, diagrams, scr
 Do **not** use them directly in a live environment. Please configure your own IPs before running the project.
 
 <p align="center">
-  <img src="assets/diagrams/lab-banner.png" alt="Enterprise SOC Lab" width="900"/>
+  <img src="assets/diagrams/lab-banner-v2.png" alt="Enterprise SOC Lab" width="900"/>
 </p>
 
 <p align="center">
