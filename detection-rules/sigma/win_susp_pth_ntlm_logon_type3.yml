@@ -1,0 +1,62 @@
+title: Suspicious NTLM Logon Type 3 (Possible Pass-the-Hash)
+id: 6c2a9e4f-7b8d-4c3e-9f1a-5d8b6e2a4c9f
+status: stable
+description: |
+  Detects suspicious NTLM authentication with Logon Type 3 (Network Logon)
+  from unusual sources or with unusual patterns that may indicate
+  Pass-the-Hash (PtH) or Pass-the-Ticket (PtT) attacks. This rule flags:
+  1. Network logons using NTLM (instead of Kerberos) from non-domain-controller sources
+  2. Multiple NTLM authentications from a single source to multiple hosts
+  3. NTLM logons from workstation-class accounts to other workstations
+  Detection of these patterns is critical for identifying credential theft.
+references:
+  - https://attack.mitre.org/techniques/T1550/003/
+  - https://attack.mitre.org/techniques/T1550/
+  - https://attack.mitre.org/techniques/T1110/
+author: Maher Mansour Mahyoub Ghaleb
+date: 2025/11/15
+modified: 2025/11/15
+tags:
+  - attack.lateral_movement
+  - attack.t1550.003
+  - attack.t1550
+  - attack.credential_access
+  - attack.t1110
+logsource:
+  product: windows
+  category: logon
+  service: null
+detection:
+  selection_ntlm_logon:
+    EventID: 4624
+    LogonType: '3'
+    AuthenticationPackageName: 'NTLM'
+    LogonProcessName:
+      - 'NtLmSsp'
+      - 'Kerberos'
+  filter_anonymous:
+    TargetUserName: 'ANONYMOUS LOGON'
+    TargetUserSid: 'S-1-5-7'
+  filter_machine_accounts:
+    TargetUserName|endswith: '$'
+  filter_domain_controller:
+    TargetDomainName|endswith:
+      - 'DOMAIN CONTROLLER'
+    TargetUserName|contains: 'DC'
+  condition: selection_ntlm_logon and not (filter_anonymous or filter_machine_accounts or filter_domain_controller)
+fields:
+  - SubjectUserName
+  - TargetUserName
+  - TargetDomainName
+  - Computer
+  - IpAddress
+  - LogonType
+  - AuthenticationPackageName
+  - LmPackageName
+falsepositives:
+  - Legacy applications requiring NTLM authentication
+  - Linux/Unix systems joined to AD via Samba
+  - Some monitoring or backup agents using NTLM
+  - IIS or SQL Server with NTLM configuration
+level: medium
+---

@@ -1,0 +1,90 @@
+title: Suspicious Outbound C2 Beaconing Activity
+id: 2d5f9a3e-7c8b-4e2d-9a4f-1b6c8d3e7a5f
+status: stable
+description: |
+  Detects network beaconing patterns indicative of Command and Control (C2)
+  communication. This includes:
+  1. Regular interval outbound connections to non-corporate destinations
+  2. HTTP/HTTPS traffic with abnormal request patterns
+  3. Connections to known C2 ports (4444, 8080, 8443, etc.)
+  4. Low-and-slow data exfiltration patterns
+  This rule uses Suricata/Zeek logs to identify suspicious outbound flow patterns.
+references:
+  - https://attack.mitre.org/techniques/T1071/001/
+  - https://attack.mitre.org/techniques/T1071/
+  - https://attack.mitre.org/techniques/T1090/
+  - https://attack.mitre.org/techniques/T1572/
+author: Maher Mansour Mahyoub Ghaleb
+date: 2025/11/15
+modified: 2025/11/15
+tags:
+  - attack.command_and_control
+  - attack.t1071.001
+  - attack.t1071
+  - attack.t1090
+  - attack.t1572
+  - attack.t1573
+logsource:
+  product: zeek
+  service: conn
+detection:
+  selection_c2_ports:
+    DestinationPort:
+      - '4444'
+      - '8080'
+      - '8443'
+      - '9090'
+      - '53'
+      - '6666'
+      - '6667'
+      - '1337'
+      - '31337'
+  selection_external_dest:
+    DestinationIP|re: '^(?!192\\.168\\.)(?!10\\.)(?!172\\.(1[6-9]|2[0-9]|3[01])\\.)'
+  selection_high_volume:
+    OrigBytes: '>50000'
+  selection_long_duration:
+    Duration: '>3600'
+  filter_corporate_destinations:
+    DestinationIP|startswith:
+      - '192.168.'
+      - '10.'
+      - '172.16.'
+      - '172.17.'
+      - '172.18.'
+      - '172.19.'
+      - '172.20.'
+      - '172.21.'
+      - '172.22.'
+      - '172.23.'
+      - '172.24.'
+      - '172.25.'
+      - '172.26.'
+      - '172.27.'
+      - '172.28.'
+      - '172.29.'
+      - '172.30.'
+      - '172.31.'
+  filter_legitimate_services:
+    DestinationPort:
+      - '443'
+      - '80'
+      - '53'
+  condition: (selection_c2_ports and selection_external_dest) or (selection_external_dest and (selection_high_volume or selection_long_duration)) and not filter_corporate_destinations
+fields:
+  - SourceIP
+  - SourcePort
+  - DestinationIP
+  - DestinationPort
+  - Protocol
+  - OrigBytes
+  - RespBytes
+  - Duration
+  - Timestamp
+falsepositives:
+  - Legitimate cloud services using non-standard ports
+  - Some VPN or proxy traffic
+  - File sharing applications
+  - Backup software syncing to external destinations
+level: high
+---

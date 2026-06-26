@@ -1,0 +1,76 @@
+title: Suspicious Scheduled Task Creation
+id: 7e2a8c4f-9d1b-4f3e-8a6c-5b9d2e7f4a8c
+status: stable
+description: |
+  Detects the creation of scheduled tasks via command line tools (schtasks.exe,
+  PowerShell New-ScheduledTask, or at.exe) which is a common technique used by
+  adversaries for persistence, lateral movement, and remote execution. Tasks
+  created with suspicious paths, hidden flags, or system-level privileges are
+  flagged. This rule monitors process creation events for task scheduler abuse.
+references:
+  - https://attack.mitre.org/techniques/T1053/005/
+  - https://attack.mitre.org/techniques/T1053/
+  - https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/schtasks
+author: Maher Mansour Mahyoub Ghaleb
+date: 2025/11/15
+modified: 2025/11/15
+tags:
+  - attack.persistence
+  - attack.execution
+  - attack.privilege_escalation
+  - attack.t1053.005
+  - attack.t1053
+logsource:
+  product: windows
+  category: process_creation
+  service: null
+detection:
+  selection_schtasks:
+    Image|endswith:
+      - '\schtasks.exe'
+    CommandLine|contains:
+      - '/create'
+  selection_powershell:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+    CommandLine|contains:
+      - 'New-ScheduledTask'
+      - 'Register-ScheduledTask'
+      - 'schtasks'
+  suspicious_flags:
+    CommandLine|contains:
+      - '/ru system'
+      - '/rl highest'
+      - 'SYSTEM'
+      - 'NT AUTHORITY\SYSTEM'
+  suspicious_paths:
+    CommandLine|contains:
+      - '\Temp\\'
+      - '\AppData\\'
+      - '\ProgramData\\'
+      - '\Public\\'
+      - 'C:\\Users\\Public'
+      - 'powershell.exe -enc'
+      - 'powershell.exe -w hidden'
+      - 'powershell.exe -nop'
+      - 'cmd.exe /c'
+  filter_legitimate:
+    CommandLine|contains:
+      - 'Microsoft\\Windows\\'
+      - '\\Office\\'
+      - '\\Adobe\\'
+  condition: (selection_schtasks or selection_powershell) and (suspicious_flags or suspicious_paths) and not filter_legitimate
+fields:
+  - User
+  - Computer
+  - Image
+  - CommandLine
+  - ParentImage
+  - ParentCommandLine
+falsepositives:
+  - Legitimate administrative task creation via Group Policy or SCCM
+  - Software update mechanisms (e.g., Windows Update, Adobe Update)
+  - Backup software scheduling
+level: high
+---

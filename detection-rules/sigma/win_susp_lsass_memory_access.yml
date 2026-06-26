@@ -1,0 +1,68 @@
+title: Suspicious LSASS Process Memory Access (Credential Dumping)
+id: 2c9e8f1a-4b7d-4c2e-8f9a-1e5d6c7b8a92
+status: stable
+description: |
+  Detects non-system processes attempting to read the memory of the LSASS
+  (Local Security Authority Subsystem Service) process. LSASS stores credentials
+  in memory (e.g., NTLM hashes, Kerberos tickets) and is a primary target for
+  credential dumping attacks such as Mimikatz, ProcDump, and comsvcs.dll.
+  This rule leverages Sysmon Event ID 10 (ProcessAccess) which logs target
+  processes and granted access masks.
+references:
+  - https://attack.mitre.org/techniques/T1003/001/
+  - https://attack.mitre.org/techniques/T1003/
+  - https://attack.mitre.org/software/S0002/
+author: Maher Mansour Mahyoub Ghaleb
+date: 2025/11/15
+modified: 2025/11/15
+tags:
+  - attack.credential_access
+  - attack.t1003.001
+  - attack.t1003
+  - attack.t1003.002
+logsource:
+  product: windows
+  category: process_access
+  service: sysmon
+detection:
+  selection_lsass_target:
+    TargetImage|endswith:
+      - '\lsass.exe'
+    GrantedAccess:
+      - '0x1010'
+      - '0x1038'
+      - '0x1438'
+      - '0x143a'
+      - '0x1410'
+  selection_known_tools:
+    SourceImage|endswith:
+      - '\procdump.exe'
+      - '\procdump64.exe'
+      - '\mimikatz.exe'
+      - '\mimilib.dll'
+      - '\nanodump.exe'
+      - '\comsvcs.dll'
+  filter_system:
+    SourceImage|startswith:
+      - 'C:\Windows\System32\'
+      - 'C:\Windows\SysWOW64\'
+  filter_av:
+    SourceImage|contains:
+      - 'Windows Defender'
+      - 'CrowdStrike'
+      - 'SentinelOne'
+      - 'Carbon Black'
+  condition: selection_lsass_target and not filter_system and not filter_av
+fields:
+  - User
+  - Computer
+  - SourceImage
+  - TargetImage
+  - GrantedAccess
+  - CallTrace
+falsepositives:
+  - Legitimate security tools (AV/EDR) accessing LSASS for credential protection
+  - Some debugging or diagnostic tools
+  - Windows internal processes
+level: critical
+---

@@ -1,0 +1,95 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ SPL Detection #07: WMI Lateral Execution Detection                           ║
+║ Author: Maher Mansour Mahyoub Ghaleb                                          ║
+║ MITRE ATT&CK: T1047 - Windows Management Instrumentation                     ║
+║ Severity: HIGH | Confidence: HIGH                                             ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+## Detection Description
+Detects suspicious use of Windows Management Instrumentation (WMI) for lateral
+movement and remote execution. WMI is commonly abused via wmic.exe or PowerShell
+to execute commands on remote hosts without triggering AV alerts.
+
+## Query Logic
+- Monitors WMI process creation events (wmic.exe, PowerShell with WMI cmdlets)
+- Identifies remote execution patterns (/node:, -ComputerName)
+- Detects suspicious commands (process call create, os get)
+- Correlates with network connections to remote hosts
+
+## SPL Query (Production-Ready)
+
+```spl
+index=windows (Image="*\\wmic.exe" OR (Image="*\\powershell.exe" AND match(CommandLine, "(?i)(Get-WmiObject|Invoke-WmiMethod|New-CimSession|Invoke-CimMethod)")))
+earliest=-15m latest=now
+| fillnull value="" CommandLine, ParentImage
+| eval has_remote_target = if(
+    match(CommandLine, "(?i)/node:|\\-ComputerName\\s|-cn\\s") OR
+    match(CommandLine, "(?i)New-CimSession"),
+    1, 0
+  )
+| eval has_execution_command = if(
+    match(CommandLine, "(?i)process\\s+call\\s+create|Invoke-WmiMethod|Invoke-CimMethod|method"),
+    1, 0
+  )
+| eval has_discovery_command = if(
+    match(CommandLine, "(?i)(os\\s+get|process\\s+get|computersystem\\s+get|useraccount\\s+get|service\\s+get)"),
+    1, 0
+  )
+| eval has_suspicious_parent = if(
+    match(ParentImage, "(?i)(cmd\\.exe|wscript\\.exe|cscript\\.exe|mshta\\.exe|regsvr32\\.exe|rundll32\\.exe)"),
+    1, 0
+  )
+| eval has_obfuscation = if(
+    match(CommandLine, "(?i)(\\-enc|base64|hidden|bypass|noexit)"),
+    1, 0
+  )
+| where (has_remote_target=1 OR has_execution_command=1) AND 
+        (has_suspicious_parent=1 OR has_obfuscation=1 OR has_discovery_command=1)
+| eval risk_score = 0
+| eval risk_score = risk_score + (has_remote_target * 30)
+| eval risk_score = risk_score + (has_execution_command * 25)
+| eval risk_score = risk_score + (has_discovery_command * 15)
+| eval risk_score = risk_score + (has_suspicious_parent * 25)
+| eval risk_score = risk_score + (has_obfuscation * 30)
+| eval severity = case(
+    risk_score >= 75, "CRITICAL",
+    risk_score >= 50, "HIGH",
+    risk_score >= 30, "MEDIUM",
+    1=1, "LOW"
+  )
+| rex field=CommandLine "(?<remote_target>(?:/node:|-ComputerName\\s+|-cn\\s+)([\\w\\.-]+))"
+| eval alert_summary = "Suspicious WMI activity on " . Computer . " by " . User . " (risk: " . risk_score . ")"
+| sort - risk_score
+| table _time, Computer, User, ParentImage, Image, CommandLine, remote_target, risk_score, severity, alert_summary
+| rename _time as detection_time
+```
+
+## Recommended Alert Configuration
+- **Trigger Condition:** risk_score >= 50 (HIGH/CRITICAL)
+- **Throttle:** 1 hour per source user-host
+- **Action:** TheHive case + immediate review
+- **Priority:** HIGH - WMI abuse is a common post-exploitation technique
+
+## Investigation Steps
+1. Identify the source user and host initiating WMI activity
+2. Extract the remote target from the command line
+3. Check if the source user has legitimate admin rights to remote hosts
+4. Review Sysmon Event ID 1 on the remote target for child processes
+5. Examine network connections (port 135 for WMI DCOM)
+6. Check for file artifacts on both source and destination
+7. Look for evidence of credential theft on source host
+8. Review other detection alerts from the same source
+
+## False Positive Sources
+- SCCM client health checks
+- System Center Operations Manager (SCOM) monitoring
+- Some RMM (Remote Monitoring and Management) tools
+- Administrative scripts via Group Policy
+
+## Mitigation Recommendations
+- Restrict WMI access via DCOM permissions
+- Enable WMI event logging and forward to SIEM
+- Implement application whitelisting
+- Use privileged account management (PAM) for admin tasks
+- Monitor WMI subscriptions for persistence mechanisms
+```

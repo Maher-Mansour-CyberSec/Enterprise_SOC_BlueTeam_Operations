@@ -1,0 +1,89 @@
+title: Suspicious Disabling or Tampering with Windows Defender
+id: 5b9c2e7a-1f4d-4b3e-9a6c-7d8f2e5a9c3b
+status: stable
+description: |
+  Detects attempts to disable, stop, or tamper with Windows Defender or
+  Microsoft Defender Antivirus functionality. Adversaries commonly disable
+  security tools before deploying additional malicious payloads. This can
+  be achieved via PowerShell cmdlets (Set-MpPreference), registry modifications,
+  or by stopping the WinDefend service.
+references:
+  - https://attack.mitre.org/techniques/T1562/001/
+  - https://attack.mitre.org/techniques/T1562/
+  - https://attack.mitre.org/techniques/T1562/002/
+author: Maher Mansour Mahyoub Ghaleb
+date: 2025/11/15
+modified: 2025/11/15
+tags:
+  - attack.defense_evasion
+  - attack.t1562.001
+  - attack.t1562
+  - attack.t1562.002
+  - attack.t1562.003
+logsource:
+  product: windows
+  category: process_creation
+  service: null
+detection:
+  selection_powershell_defender:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+    CommandLine|contains:
+      - 'Set-MpPreference'
+      - 'Add-MpPreference'
+      - 'Remove-MpPreference'
+      - 'Disable-MpMonitoring'
+      - 'Disable-RealtimeMonitoring'
+      - 'Disable-BehaviorMonitoring'
+      - 'Disable-BlockAtFirstSeen'
+      - 'Disable-IOAVProtection'
+      - 'Disable-EmailScanning'
+      - 'Disable-ScriptScanning'
+      - 'Disable-NetworkProtection'
+      - 'Disable-IntrusionPreventionSystem'
+      - 'Disable-CloudAntivirus'
+      - 'Set-NetFirewallRule'
+      - 'Disable-NetFirewallRule'
+  selection_registry:
+    Image|endswith:
+      - '\reg.exe'
+      - '\regedit.exe'
+    CommandLine|contains:
+      - 'SOFTWARE\Policies\Microsoft\Windows Defender'
+      - 'DisableAntiSpyware'
+      - 'DisableRealtimeMonitoring'
+      - 'DisableBehaviorMonitoring'
+      - 'DisableOnAccessProtection'
+      - 'DisableScanOnRealtimeEnable'
+      - 'DisableScriptScanning'
+  selection_service_stop:
+    Image|endswith:
+      - '\sc.exe'
+      - '\net.exe'
+      - '\powershell.exe'
+    CommandLine|contains:
+      - 'WinDefend'
+      - 'stop WinDefend'
+      - 'Set-Service WinDefend'
+  selection_tamper_protection:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+    CommandLine|contains:
+      - 'DisableBehaviorMonitoring'
+      - 'DisableRealtimeMonitoring'
+  condition: selection_powershell_defender or selection_registry or selection_service_stop or selection_tamper_protection
+fields:
+  - User
+  - Computer
+  - Image
+  - CommandLine
+  - ParentImage
+  - ParentCommandLine
+falsepositives:
+  - Administrator testing defender policies
+  - Some software installation requiring real-time protection to be temporarily disabled
+  - Group Policy deployment of defender settings (rare in legitimate scenarios)
+level: critical
+---

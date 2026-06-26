@@ -1,0 +1,81 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ SPL Detection #04: Kerberoasting Attack Detection                            ║
+║ Author: Maher Mansour Mahyoub Ghaleb                                          ║
+║ MITRE ATT&CK: T1558.003 - Steal Kerberos Tickets: Kerberoasting             ║
+║ Severity: HIGH | Confidence: HIGH                                             ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+## Detection Description
+Detects Kerberoasting attacks by identifying unusual patterns of TGS (Ticket
+Granting Service) requests using RC4 encryption (0x17). Kerberoasting is a
+post-compromise technique where attackers request service tickets for accounts
+with SPNs and crack them offline to obtain credentials.
+
+## Query Logic
+- Monitors Windows Security Event ID 4769 (Kerberos Service Ticket Operations)
+- Identifies RC4 encryption type requests (vulnerable to offline cracking)
+- Groups by source user to detect ticket harvesting patterns
+- Filters legitimate service accounts and known trusted sources
+
+## SPL Query (Production-Ready)
+
+```spl
+index=windows EventCode=4769 TicketEncryptionType=0x17 earliest=-1h latest=now
+| fillnull value="" TargetUserName, ServiceName, ClientAddress
+| rex field=ClientAddress "(?<src_ip>\d+\.\d+\.\d+\.\d+)"
+| rex field=ServiceName "(?<spn_service>[^/]+)/(?<spn_host>.+)"
+| eval service_account_type = case(
+    match(TargetUserName, "(?i)^(svc_|service_|sql_|iis_|backup_)"), "Service Account",
+    match(TargetUserName, "(?i)(admin|administrator)$"), "Privileged User",
+    1=1, "Standard User"
+  )
+| stats count as tickets_requested
+        values(ServiceName) as service_names
+        values(spn_service) as spn_services
+        values(TargetUserName) as target_accounts
+        earliest(_time) as first_request
+        latest(_time) as last_request
+        by TargetUserName, src_ip
+| where tickets_requested >= 3
+| eval severity = case(
+    tickets_requested >= 15, "CRITICAL",
+    tickets_requested >= 8, "HIGH",
+    tickets_requested >= 3, "MEDIUM",
+    1=1, "LOW"
+  )
+| eval time_window_minutes = round((last_request - first_request) / 60, 2)
+| eval alert_summary = "Potential Kerberoasting: " . tickets_requested . " RC4-encrypted TGS requests for " . target_accounts . " from " . src_ip . " in " . time_window_minutes . " minutes"
+| sort - tickets_requested
+| table _time, TargetUserName, src_ip, tickets_requested, service_names, severity, alert_summary
+| rename _time as detection_time, TargetUserName as ServiceAccount
+```
+
+## Recommended Alert Configuration
+- **Trigger Condition:** tickets_requested >= 8 (HIGH/CRITICAL)
+- **Throttle:** 4 hours per source IP
+- **Action:** TheHive case + immediate password rotation recommendation
+- **Priority:** HIGH - service account compromise can lead to privilege escalation
+
+## Investigation Steps
+1. Identify the source IP and user account making requests
+2. Determine if the activity is from a known service account or admin workstation
+3. Review service accounts being targeted - prioritize those with elevated privileges
+4. Check if the source account has any prior suspicious activity
+5. Examine network logs for connections from the source IP
+6. Reset passwords for all affected service accounts (use complex random passwords)
+7. Configure service accounts to use AES encryption (0x12) instead of RC4
+8. Audit Kerberos pre-authentication settings (consider requiring pre-auth)
+
+## False Positive Sources
+- Legacy applications configured to use RC4
+- Some monitoring or scanning tools
+- Scheduled tasks using service accounts (review frequency)
+- Active Directory administrative tools during legitimate operations
+
+## Mitigation Recommendations
+- Set service account passwords to 25+ characters (random)
+- Configure service accounts with AES encryption only
+- Implement Group Managed Service Accounts (gMSA)
+- Monitor for anomalous Kerberos ticket activity
+- Implement privileged account management (PAM) solution
+```

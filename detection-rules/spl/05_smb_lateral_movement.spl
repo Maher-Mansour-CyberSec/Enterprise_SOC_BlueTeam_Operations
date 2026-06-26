@@ -1,0 +1,77 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ SPL Detection #05: SMB Lateral Movement Detection                            ║
+║ Author: Maher Mansour Mahyoub Ghaleb                                          ║
+║ MITRE ATT&CK: T1021.002 - Remote Services: SMB/Windows Admin Shares          ║
+║ Severity: HIGH | Confidence: MEDIUM-HIGH                                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+## Detection Description
+Detects lateral movement attempts via SMB by monitoring access to administrative
+shares (ADMIN$, C$, IPC$) from suspicious sources. Adversaries commonly use
+PsExec, WMI, or PowerShell to move laterally through SMB admin shares after
+gaining initial access.
+
+## Query Logic
+- Monitors Event ID 5140 (Network Share Access) and 4624 (Successful Logon)
+- Identifies admin share access patterns from non-admin sources
+- Correlates with logon type 3 (network) and authentication packages
+- Detects multi-host lateral movement from a single source
+
+## SPL Query (Production-Ready)
+
+```spl
+index=windows (EventCode=5140 OR EventCode=4624) earliest=-30m latest=now
+| fillnull value="" ShareName, IpAddress, SubjectUserName, TargetUserName
+| rex field=IpAddress "(?<src_ip>\d+\.\d+\.\d+\.\d+)"
+| eval is_admin_share = if(match(ShareName, "(?i)\\\\(ADMIN\\$|C\\$|IPC\\$)"), 1, 0)
+| eval is_network_logon = if(EventCode=4624 AND LogonType=3, 1, 0)
+| where is_admin_share=1 OR is_network_logon=1
+| stats count as access_count
+        values(eval(if(EventCode=5140, ShareName, null()))) as shares_accessed
+        values(eval(if(EventCode=4624, LogonType, null()))) as logon_types
+        values(Computer) as destination_hosts
+        values(eval(if(EventCode=4624, AuthenticationPackageName, null()))) as auth_packages
+        by src_ip, SubjectUserName, TargetUserName
+| where access_count >= 3 OR mvcount(destination_hosts) >= 2
+| eval severity = case(
+    mvcount(destination_hosts) >= 5, "CRITICAL",
+    mvcount(destination_hosts) >= 3 OR access_count >= 10, "HIGH",
+    1=1, "MEDIUM"
+  )
+| eval admin_share_access = if(mvcount(shares_accessed) > 0, "YES", "NO")
+| eval multi_host_lateral = if(mvcount(destination_hosts) >= 2, "YES", "NO")
+| eval alert_summary = "Lateral movement from " . SubjectUserName . " at " . src_ip . " accessing " . mvcount(destination_hosts) . " host(s)"
+| sort - access_count
+| table _time, SubjectUserName, TargetUserName, src_ip, access_count, destination_hosts, shares_accessed, severity, alert_summary
+| rename _time as detection_time, SubjectUserName as SourceUser
+```
+
+## Recommended Alert Configuration
+- **Trigger Condition:** severity IN (HIGH, CRITICAL)
+- **Throttle:** 1 hour per source user
+- **Action:** TheHive case + immediate review by SOC analyst
+- **Priority:** HIGH - lateral movement indicates active compromise
+
+## Investigation Steps
+1. Verify if the source user is authorized for admin share access
+2. Check if the source host has any known issues or recent alerts
+3. Review authentication packages used (NTLM vs Kerberos)
+4. Examine process creation events on the source host (PsExec, WMI)
+5. Check for file modifications on destination hosts
+6. Review network traffic between source and destinations
+7. Look for evidence of credential theft or privilege escalation
+8. Consider isolating the source host if compromise is confirmed
+
+## False Positive Sources
+- IT administrators using remote management tools legitimately
+- SCCM/Configuration Manager client push operations
+- Backup software accessing multiple hosts
+- Patch management deployment activities
+
+## Mitigation Recommendations
+- Enable Windows Firewall with strict SMB rules
+- Disable admin shares where not required
+- Implement LAPS (Local Administrator Password Solution)
+- Monitor and alert on service account logons
+- Use jump servers for administrative access
+```

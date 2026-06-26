@@ -1,0 +1,70 @@
+title: Suspicious Process Injection via CreateRemoteThread
+id: 8e2b5c7f-4a9d-4c1e-8b3a-6f2c9e5d7b4a
+status: stable
+description: |
+  Detects suspicious process injection techniques using CreateRemoteThread
+  API calls. This technique is observed in Sysmon Event ID 8 (CreateRemoteThread)
+  where a process injects code into another process. Common malware families
+  and offensive tools (Cobalt Strike, Metasploit, custom RATs) use this method
+  for defense evasion and persistence. Legitimate software rarely uses this API.
+references:
+  - https://attack.mitre.org/techniques/T1055/002/
+  - https://attack.mitre.org/techniques/T1055/
+  - https://attack.mitre.org/techniques/T1055/001/
+author: Maher Mansour Mahyoub Ghaleb
+date: 2025/11/15
+modified: 2025/11/15
+tags:
+  - attack.defense_evasion
+  - attack.privilege_escalation
+  - attack.t1055.002
+  - attack.t1055
+  - attack.t1055.001
+  - attack.t1055.003
+logsource:
+  product: windows
+  category: create_remote_thread
+  service: sysmon
+detection:
+  selection_injection:
+    EventID: 8
+  filter_legitimate_processes:
+    SourceImage|startswith:
+      - 'C:\Windows\System32\'
+      - 'C:\Windows\SysWOW64\'
+      - 'C:\Program Files\'
+      - 'C:\Program Files (x86)\'
+    SourceImage|endswith:
+      - '\csrss.exe'
+      - '\lsass.exe'
+      - '\svchost.exe'
+      - '\WerFault.exe'
+      - '\WmiPrvSe.exe'
+  filter_security_products:
+    SourceImage|contains:
+      - 'Defender'
+      - 'CrowdStrike'
+      - 'SentinelOne'
+      - 'Carbon Black'
+      - 'ESET'
+      - 'Trend Micro'
+  filter_signing:
+    Signed: 'true'
+    SignatureStatus: 'Valid'
+  condition: selection_injection and not (filter_legitimate_processes or filter_security_products or filter_signing)
+fields:
+  - SourceImage
+  - TargetImage
+  - SourceProcessId
+  - TargetProcessId
+  - NewThreadId
+  - StartAddress
+  - StartModule
+  - SourceUser
+  - TargetUser
+falsepositives:
+  - Some anti-malware products creating remote threads for scanning
+  - Debuggers and development tools
+  - Some legitimate software with poor security practices
+level: critical
+---

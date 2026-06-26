@@ -1,0 +1,90 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ SPL Detection #08: Ransomware Activity Indicators                           ║
+║ Author: Maher Mansour Mahyoub Ghaleb                                          ║
+║ MITRE ATT&CK: T1486 - Data Encrypted for Impact | T1490 - Inhibit System     ║
+║             Recovery | T1489 - Service Stop                                   ║
+║ Severity: CRITICAL | Confidence: HIGH                                          ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+## Detection Description
+Detects early indicators of ransomware activity including:
+- High-volume file modifications (encryption behavior)
+- Volume Shadow Copy deletion (inhibit recovery)
+- Backup service or process termination
+- Suspicious vssadmin, wbadmin, or bcdedit usage
+
+## Query Logic
+- Monitors process creation events for ransomware-related tools
+- Detects suspicious file modification patterns
+- Identifies attempts to disable recovery mechanisms
+- Correlates multiple indicators for high-confidence detection
+
+## SPL Query (Production-Ready)
+
+```spl
+index=windows earliest=-30m latest=now
+| fillnull value="" Image, CommandLine, ParentImage
+| eval ransomware_indicator = case(
+    match(CommandLine, "(?i)vssadmin\\s+delete\\s+shadows"), "ShadowCopyDeletion",
+    match(CommandLine, "(?i)wbadmin\\s+delete\\s+backup"), "BackupDeletion",
+    match(CommandLine, "(?i)bcdedit\\s+/set\\s+{default}\\s+recoveryenabled\\s+no"), "RecoveryDisabled",
+    match(CommandLine, "(?i)wbadmin\\s+delete\\s+catalog"), "CatalogDeletion",
+    match(CommandLine, "(?i)wmic\\s+shadowcopy\\s+delete"), "WMICShadowDelete",
+    match(CommandLine, "(?i)net\\s+stop\\s+(vss|sql|backup|veeam)"), "ServiceTermination",
+    match(CommandLine, "(?i)taskkill\\s+/f\\s+/im"), "ProcessKilled",
+    match(CommandLine, "(?i)powershell.*-enc.*frombase64string"), "EncodedPayload",
+    match(CommandLine, "(?i)wevtutil\\s+cl"), "LogCleared",
+    1=1, "None"
+  )
+| where ransomware_indicator != "None"
+| stats count as indicator_count
+        values(ransomware_indicator) as indicators
+        values(CommandLine) as commands
+        values(Image) as tools_used
+        earliest(_time) as first_indicator
+        latest(_time) as last_indicator
+        by Computer, User
+| eval severity = case(
+    mvcount(indicators) >= 3, "CRITICAL",
+    mvcount(indicators) >= 2, "HIGH",
+    1=1, "MEDIUM"
+  )
+| eval alert_summary = "Ransomware indicators detected on " . Computer . " - " . mvcount(indicators) . " different techniques"
+| sort - indicator_count
+| table _time, Computer, User, indicator_count, indicators, tools_used, severity, alert_summary
+| rename _time as detection_time
+```
+
+## Recommended Alert Configuration
+- **Trigger Condition:** severity IN (HIGH, CRITICAL)
+- **Throttle:** NONE - this is a CRITICAL emergency
+- **Action:** IMMEDIATE TheHive case + PagerDuty + phone call
+- **Priority:** CRITICAL - every second counts
+
+## Investigation Steps (EMERGENCY RESPONSE)
+1. IMMEDIATELY isolate the affected host from network
+2. Do NOT shut down the host (preserve memory for forensics)
+3. Capture memory dump immediately
+4. Identify the patient zero - which host was first infected
+5. Check for encryption activity across the environment
+6. Verify backup integrity - are backups also encrypted?
+7. Review network shares accessed from affected host
+8. Activate incident response plan immediately
+9. Notify management and legal teams
+10. Consider activating external IR team if needed
+
+## False Positive Sources
+- IT administrators performing legitimate maintenance
+- Some backup software performing cleanup operations
+- Disk cleanup utilities
+- Legitimate system administration scripts
+
+## Prevention Recommendations
+- Implement 3-2-1 backup strategy (3 copies, 2 media, 1 offsite)
+- Test backup restoration regularly
+- Implement application whitelisting
+- Deploy advanced endpoint protection (EDR)
+- Segment networks to limit ransomware spread
+- Implement privileged access management
+- Conduct regular ransomware tabletop exercises
+```

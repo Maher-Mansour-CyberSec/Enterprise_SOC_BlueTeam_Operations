@@ -1,0 +1,58 @@
+title: Suspicious Persistence via Registry Run Keys
+id: 5a8c3e9f-7b2d-4a1e-9c8f-3d6b5e4a2c7f
+status: stable
+description: |
+  Detects modifications to common Windows Registry Run/RunOnce keys used for
+  persistence. Adversaries frequently add malicious executables or scripts to
+  these keys to maintain persistence across reboots and user logons.
+  Monitors Sysmon Event ID 13 (RegistryEvent - Value Set) and Windows Event ID 4657.
+references:
+  - https://attack.mitre.org/techniques/T1547/001/
+  - https://attack.mitre.org/techniques/T1547/
+  - https://persistence-info.github.io/
+author: Maher Mansour Mahyoub Ghaleb
+date: 2025/11/15
+modified: 2025/11/15
+tags:
+  - attack.persistence
+  - attack.t1547.001
+  - attack.t1547
+  - attack.privilege_escalation
+  - attack.t1574
+logsource:
+  product: windows
+  category: registry_event
+  service: sysmon
+detection:
+  selection_run_keys:
+    TargetObject|contains:
+      - '\Software\Microsoft\Windows\CurrentVersion\Run\'
+      - '\Software\Microsoft\Windows\CurrentVersion\RunOnce\'
+      - '\Software\Microsoft\Windows\CurrentVersion\RunOnceEx\'
+      - '\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer\Run\'
+      - '\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Shell'
+      - '\Software\Microsoft\Windows NT\CurrentVersion\Winlogon\Userinit'
+    EventType: 'SetValue'
+  filter_legitimate_paths:
+    Details|contains:
+      - 'C:\Program Files\'
+      - 'C:\Program Files (x86)\'
+      - 'C:\Windows\System32\'
+      - 'C:\Windows\SysWOW64\'
+  filter_ms_signed:
+    Details|endswith:
+      - '.exe" /ms'
+  condition: selection_run_keys and not (filter_legitimate_paths or filter_ms_signed)
+fields:
+  - User
+  - Computer
+  - TargetObject
+  - Details
+  - Image
+  - ParentImage
+falsepositives:
+  - Software installations that add legitimate Run keys
+  - Some corporate administrative scripts
+  - Microsoft-signed installers (/ms parameter)
+level: high
+---

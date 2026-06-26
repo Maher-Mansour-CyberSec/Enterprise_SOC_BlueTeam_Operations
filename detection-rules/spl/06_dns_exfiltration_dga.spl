@@ -1,0 +1,94 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ SPL Detection #06: DNS Exfiltration & DGA Detection                          ║
+║ Author: Maher Mansour Mahyoub Ghaleb                                          ║
+║ MITRE ATT&CK: T1071.004 - DNS | T1568.002 - Domain Generation Algorithms     ║
+║ Severity: HIGH | Confidence: MEDIUM                                           ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+## Detection Description
+Detects DNS-based Command & Control (C2) communication and data exfiltration.
+Identifies:
+- Domain Generation Algorithm (DGA) patterns
+- DNS tunneling indicators (high entropy, long labels)
+- Connections to known suspicious TLDs
+- Anomalous NXDOMAIN response rates
+
+## Query Logic
+- Analyzes DNS query logs (Zeek/Suricata forwarded to Splunk)
+- Calculates entropy and length of queried domains
+- Identifies queries with DGA-like patterns
+- Groups by source IP to detect campaign patterns
+
+## SPL Query (Production-Ready)
+
+```spl
+index=dns earliest=-1h latest=now
+| fillnull value="" query, query_type, status
+| rex field=query "(?<domain_label>[^.]+)\.(?<tld>[^.]+)$"
+| eval query_length = len(query)
+| eval label_length = len(domain_label)
+| eval label_entropy = 0
+| foreach domain_label [
+    eval label_entropy = label_entropy + (
+        len(domain_label) * 
+        (1.0 - (mvcount(mvdedup(split(domain_label, ""))) / len(domain_label)))
+    )
+]
+| eval entropy_score = round(label_entropy, 2)
+| eval is_suspicious = if(
+    label_length >= 20 OR
+    entropy_score >= 3.5 OR
+    match(tld, "^(top|xyz|tk|ml|ga|cf|pw|club|online|site|fun)$") OR
+    status="NXDOMAIN",
+    1, 0
+  )
+| where is_suspicious=1
+| stats count as query_count
+        values(query) as sample_queries
+        values(tld) as queried_tlds
+        earliest(_time) as first_query
+        latest(_time) as last_query
+        by src_ip, src_port
+| where query_count >= 5
+| eval severity = case(
+    query_count >= 50, "CRITICAL",
+    query_count >= 20, "HIGH",
+    query_count >= 5, "MEDIUM",
+    1=1, "LOW"
+  )
+| eval is_dga_pattern = if(match(sample_queries, "(?i)[a-z0-9]{20,}"), "YES", "POSSIBLE")
+| eval alert_summary = "Suspicious DNS activity from " . src_ip . " - " . query_count . " queries, " . mvcount(sample_queries) . " unique domains"
+| sort - query_count
+| table _time, src_ip, src_port, query_count, sample_queries, queried_tlds, severity, is_dga_pattern, alert_summary
+| rename _time as detection_time
+```
+
+## Recommended Alert Configuration
+- **Trigger Condition:** severity IN (HIGH, CRITICAL)
+- **Throttle:** 2 hours per source IP
+- **Action:** TheHive case + DNS sinkhole investigation
+- **Priority:** HIGH - may indicate active C2 communication
+
+## Investigation Steps
+1. Check if the source IP is a known compromised host
+2. Sample the suspicious domains and check reputation (VirusTotal, ThreatIntel)
+3. Examine NXDOMAIN patterns - could indicate DGA
+4. Review DNS query frequency patterns (regular intervals = beaconing)
+5. Check if source IP has outbound connections to suspicious destinations
+6. Look for HTTP/HTTPS traffic from same source to detected domains
+7. Consider sinkholing suspicious domains at DNS level
+8. Review other hosts communicating with same suspicious domains
+
+## False Positive Sources
+- CDN services with long encoded URLs
+- Email security gateways
+- Anti-spam or web filtering DNS queries
+- Legitimate cloud services using non-standard TLDs
+
+## Mitigation Recommendations
+- Deploy DNS sinkholing for known malicious domains
+- Implement threat intelligence feeds integration
+- Block suspicious TLDs at firewall/DNS level
+- Monitor DNS query patterns for anomalies
+- Implement DNS-over-HTTPS (DoH) policy to reduce DNS leaks
+```

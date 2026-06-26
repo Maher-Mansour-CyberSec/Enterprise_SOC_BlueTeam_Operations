@@ -1,0 +1,79 @@
+title: Suspicious WMI Process Execution (Lateral Movement & Execution)
+id: 3f8c2a9e-6b4d-4a7f-9e1c-8d5b3a7f2e6c
+status: stable
+description: |
+  Detects suspicious Windows Management Instrumentation (WMI) command-line
+  usage via wmic.exe or PowerShell Get-WmiObject/Invoke-WmiMethod. WMI is
+  commonly abused by adversaries for stealthy execution, lateral movement
+  (e.g., wmic /node:"target" process call create), persistence, and data
+  gathering. Remote WMI execution is particularly suspicious outside of
+  administrative contexts.
+references:
+  - https://attack.mitre.org/techniques/T1047/
+  - https://attack.mitre.org/techniques/T1047/001/
+  - https://attack.mitre.org/wiki/Technique/T1047
+author: Maher Mansour Mahyoub Ghaleb
+date: 2025/11/15
+modified: 2025/11/15
+tags:
+  - attack.execution
+  - attack.lateral_movement
+  - attack.t1047
+  - attack.t1047.001
+  - attack.discovery
+logsource:
+  product: windows
+  category: process_creation
+  service: null
+detection:
+  selection_wmic:
+    Image|endswith:
+      - '\wmic.exe'
+    CommandLine|contains:
+      - 'process call create'
+      - '/node:'
+      - '/user:'
+      - '/password:'
+      - 'os get'
+      - 'process get'
+      - 'computersystem get'
+      - 'useraccount get'
+  selection_powershell_wmi:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+    CommandLine|contains:
+      - 'Invoke-WmiMethod'
+      - 'Invoke-CimMethod'
+      - 'Get-WmiObject'
+      - 'New-CimSession'
+      - '-ComputerName '
+  suspicious_encoded:
+    CommandLine|contains:
+      - ' -enc '
+      - '-EncodedCommand'
+      - '-w hidden'
+      - '-WindowStyle Hidden'
+      - 'IEX'
+      - 'DownloadString'
+      - 'DownloadFile'
+  filter_system_tools:
+    ParentImage|startswith:
+      - 'C:\Windows\System32\wbem\'
+      - 'C:\Program Files\'
+    CommandLine|contains:
+      - '\Microsoft\Windows\'
+  condition: (selection_wmic or selection_powershell_wmi) and not filter_system_tools
+fields:
+  - User
+  - Computer
+  - Image
+  - CommandLine
+  - ParentImage
+  - ParentCommandLine
+falsepositives:
+  - SCCM client health checks
+  - Administrative scripts via Group Policy
+  - System Center / monitoring agents
+level: high
+---

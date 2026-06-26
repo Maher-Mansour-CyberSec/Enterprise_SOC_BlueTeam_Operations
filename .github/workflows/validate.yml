@@ -1,0 +1,100 @@
+name: Validate Detection Rules
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  validate-sigma:
+    name: Validate Sigma Rules
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install sigma-cli
+        run: |
+          pip install sigma-cli pysigma
+
+      - name: Validate Sigma Rules
+        run: |
+          echo "Validating Sigma rules..."
+          sigma check detection-rules/sigma/
+
+      - name: Convert Sigma to Splunk (test)
+        run: |
+          mkdir -p output/splunk
+          sigma convert -t splunk -o output/splunk/ detection-rules/sigma/*.yml
+
+      - name: Upload Conversion Output
+        uses: actions/upload-artifact@v4
+        with:
+          name: sigma-to-splunk
+          path: output/splunk/
+
+  validate-spl:
+    name: Validate SPL Queries
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Validate SPL Files
+        run: |
+          echo "Validating SPL query syntax..."
+          for file in detection-rules/spl/*.spl; do
+            echo "Checking $file..."
+            # Basic validation: check file is not empty and has SPL keywords
+            if [ -s "$file" ]; then
+              if grep -q "index=" "$file" || grep -q "\|" "$file"; then
+                echo "✓ $file: Valid SPL structure"
+              else
+                echo "✗ $file: Missing SPL keywords"
+                exit 1
+              fi
+            else
+              echo "✗ $file: Empty file"
+              exit 1
+            fi
+          done
+
+  validate-yara:
+    name: Validate YARA Rules
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install YARA
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y yara
+
+      - name: Compile YARA Rules
+        run: |
+          echo "Compiling YARA rules..."
+          for file in detection-rules/yara/*.yar; do
+            echo "Compiling $file..."
+            yara -w "$file" /dev/null
+          done
+
+  markdown-lint:
+    name: Lint Markdown Files
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Lint Markdown
+        uses: DavidAnson/markdownlint-cli2-action@v17
+        with:
+          globs: |
+            *.md
+            **/*.md

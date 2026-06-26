@@ -1,0 +1,84 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ SPL Detection #03: Suspicious PowerShell Activity                            ║
+║ Author: Maher Mansour Mahyoub Ghaleb                                          ║
+║ MITRE ATT&CK: T1059.001 - PowerShell | T1027 - Obfuscated Files             ║
+║ Severity: HIGH | Confidence: MEDIUM-HIGH                                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+## Detection Description
+Identifies suspicious PowerShell execution patterns commonly used by adversaries
+for initial execution, defense evasion, and payload delivery. Focuses on:
+- Encoded command execution
+- Hidden window execution
+- Download cradles (DownloadString, DownloadFile)
+- Reflection-based loading
+- Suspicious parent-child relationships
+
+## Query Logic
+- Monitors PowerShell process creation events
+- Matches multiple obfuscation/evasion patterns
+- Correlates with parent processes (cmd, wscript, cscript)
+- Dynamic severity based on pattern complexity
+
+## SPL Query (Production-Ready)
+
+```spl
+index=windows (Image="*\\powershell.exe" OR Image="*\\pwsh.exe") earliest=-15m latest=now
+| fillnull value="" CommandLine
+| eval suspicious_pattern = case(
+    match(CommandLine, "(?i)-[eE]nc(odedCommand)?\\s"), "EncodedCommand",
+    match(CommandLine, "(?i)-[wW]indowStyle\\s+[Hh]idden"), "HiddenWindow",
+    match(CommandLine, "(?i)-[nN]o[nP]rofile"), "NoProfile",
+    match(CommandLine, "(?i)-[eE]xecutionPolicy\\s+[Bb]ypass"), "ExecutionPolicyBypass",
+    match(CommandLine, "(?i)(DownloadString|DownloadFile|IEX|Invoke-Expression)"), "DownloadCradle",
+    match(CommandLine, "(?i)System\\.Reflection\\.Assembly"), "ReflectionLoad",
+    match(CommandLine, "(?i)FromBase64String|ToBase64String"), "Base64Encoding",
+    match(CommandLine, "(?i)-[eE]n[vV]\\s"), "EnvironmentVariable",
+    1=1, "None"
+  )
+| eval risk_score = 0
+| eval risk_score = if(match(CommandLine, "(?i)-[eE]nc(odedCommand)?"), risk_score + 30, risk_score)
+| eval risk_score = if(match(CommandLine, "(?i)(DownloadString|DownloadFile|IEX)"), risk_score + 25, risk_score)
+| eval risk_score = if(match(CommandLine, "(?i)-[wW]indowStyle\\s+[Hh]idden"), risk_score + 15, risk_score)
+| eval risk_score = if(match(CommandLine, "(?i)-[eE]xecutionPolicy\\s+[Bb]ypass"), risk_score + 20, risk_score)
+| eval risk_score = if(match(CommandLine, "(?i)System\\.Reflection\\.Assembly"), risk_score + 20, risk_score)
+| eval risk_score = if(match(ParentImage, "(?i)(cmd|wscript|cscript|mshta|regsvr32|rundll32)"), risk_score + 25, risk_score)
+| where suspicious_pattern != "None" AND risk_score >= 30
+| eval severity = case(
+    risk_score >= 70, "CRITICAL",
+    risk_score >= 50, "HIGH",
+    risk_score >= 30, "MEDIUM",
+    1=1, "LOW"
+  )
+| rex field=CommandLine "(?<base64_content>[A-Za-z0-9+/=]{100,})"
+| eval has_base64 = if(isnotnull(base64_content), "YES", "NO")
+| eval alert_summary = "PowerShell on " . Computer . " by " . User . " with risk score " . risk_score . " - " . suspicious_pattern
+| sort - risk_score
+| table _time, Computer, User, ParentImage, CommandLine, suspicious_pattern, risk_score, severity, has_base64, alert_summary
+| rename _time as detection_time
+```
+
+## Recommended Alert Configuration
+- **Trigger Condition:** risk_score >= 50 (HIGH/CRITICAL)
+- **Throttle:** 1 hour per user-host combination
+- **Action:** TheHive case creation + SOC analyst review
+- **Severity Mapping:** MEDIUM -> Yellow, HIGH -> Orange, CRITICAL -> Red
+
+## Investigation Steps
+1. Decode the base64 content if present (use CyberChef or similar)
+2. Review the parent process - was it Office, browser, or another suspicious source?
+3. Examine the full command line for indicators of compromise
+4. Check for file artifacts in user temp directories
+5. Review network connections from the host during execution
+6. Look for child processes spawned by this PowerShell instance
+7. Search for similar patterns across the environment (same content)
+
+## False Positive Sources
+- SCCM client health checks
+- Software deployment scripts
+- DevOps automation tools
+- Some RMM (Remote Monitoring and Management) tools
+
+## Related Sigma Rule
+sigma/rules/win_susp_powershell_encoded_command.yml
+```

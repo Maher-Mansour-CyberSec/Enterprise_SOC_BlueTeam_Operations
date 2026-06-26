@@ -1,0 +1,57 @@
+title: Suspicious Kerberoasting Activity
+id: 4a7c8e2f-3b9d-4e6a-9c2f-7d5b8e1a4c6f
+status: stable
+description: |
+  Detects potential Kerberoasting attacks by identifying requests for Kerberos
+  service tickets (TGS) with unusual RC4 encryption (0x17) for accounts with
+  SPN (Service Principal Names) registered. Kerberoasting is a credential
+  access technique where attackers request service tickets and crack them
+  offline to obtain service account credentials. Legitimate Kerberos requests
+  typically use AES (0x11) or other strong encryption.
+references:
+  - https://attack.mitre.org/techniques/T1558/003/
+  - https://attack.mitre.org/techniques/T1558/
+  - https://adsecurity.org/?p=2293
+author: Maher Mansour Mahyoub Ghaleb
+date: 2025/11/15
+modified: 2025/11/15
+tags:
+  - attack.credential_access
+  - attack.t1558.003
+  - attack.t1558
+  - attack.t1558.002
+logsource:
+  product: windows
+  category: logon
+  service: null
+detection:
+  selection_tgs_request:
+    EventID: 4769
+    TicketEncryptionType: '0x17'
+  selection_multiple_requests:
+    EventID: 4769
+    TicketEncryptionType:
+      - '0x17'
+      - '0x12'
+  filter_service_accounts:
+    TargetUserName|endswith:
+      - '$'
+      - 'svc_'
+      - 'service'
+      - 'sql'
+      - 'iis'
+      - 'backup'
+  condition: selection_tgs_request and not filter_service_accounts
+fields:
+  - TargetUserName
+  - TargetDomainName
+  - ServiceName
+  - ClientAddress
+  - TicketEncryptionType
+  - TicketOptions
+falsepositives:
+  - Legacy applications requesting RC4 service tickets
+  - Some monitoring or backup services
+  - SQL Server service accounts (legacy config)
+level: high
+---

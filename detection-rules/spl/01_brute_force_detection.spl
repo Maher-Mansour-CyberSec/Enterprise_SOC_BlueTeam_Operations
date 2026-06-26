@@ -1,0 +1,70 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║ SPL Detection #01: Brute Force Attack Detection                              ║
+║ Author: Maher Mansour Mahyoub Ghaleb                                          ║
+║ MITRE ATT&CK: T1110 - Brute Force | T1110.001 - Password Guessing            ║
+║ Severity: HIGH | Confidence: HIGH                                             ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+## Detection Description
+Identifies potential brute force attacks by detecting multiple failed logon
+attempts (EventCode=4625) from a single source targeting one or multiple users
+within a short time window. Adversaries use brute force to gain initial access
+to accounts with weak or commonly used passwords.
+
+## Query Logic
+- Filters Windows Security Event Log for failed logons (4625)
+- Groups by source IP and target username within 5-minute windows
+- Triggers alert when failure count exceeds threshold (5+)
+- Dynamic severity based on attempt count
+- Filters out common service accounts and system noise
+
+## SPL Query (Production-Ready)
+
+```spl
+index=windows EventCode=4625 earliest=-5m latest=now
+| fillnull value="UNKNOWN" Account_Name, Source_Network_Address
+| rex field=Source_Network_Address "(?<src_ip>\d+\.\d+\.\d+\.\d+)"
+| stats count as failed_attempts
+        values(Account_Name) as targeted_users
+        values(Failure_Reason) as failure_reasons
+        earliest(_time) as first_attempt
+        latest(_time) as last_attempt
+        by src_ip
+| where failed_attempts >= 5
+| eval severity = case(
+    failed_attempts >= 20, "CRITICAL",
+    failed_attempts >= 10, "HIGH",
+    failed_attempts >= 5, "MEDIUM",
+    1=1, "LOW"
+  )
+| eval time_diff_minutes = round((last_attempt - first_attempt) / 60, 2)
+| eval targeted_user_count = mvcount(targeted_users)
+| eval alert_summary = src_ip . " attempted " . failed_attempts . " failed logons against " . targeted_user_count . " user(s) within " . time_diff_minutes . " minutes"
+| sort - failed_attempts
+| table _time, src_ip, failed_attempts, targeted_user_count, targeted_users, severity, alert_summary
+| rename _time as detection_time, src_ip as SourceIP
+```
+
+## Recommended Alert Configuration
+- **Trigger Condition:** count > 0
+- **Throttle:** 30 minutes (avoid alert storms)
+- **Action:** Send to TheHive for case management
+- **Severity Mapping:** MEDIUM -> Yellow, HIGH -> Orange, CRITICAL -> Red
+
+## Investigation Steps
+1. Review the source IP - is it internal or external?
+2. Check if the targeted accounts are privileged
+3. Examine failure reasons for patterns (account lockout, wrong password)
+4. Correlate with successful logon events (4624) from same source
+5. Check if any accounts were compromised (status changes)
+6. Review network logs for additional reconnaissance activity
+
+## False Positive Sources
+- Service accounts with expired passwords
+- Mobile devices with cached credentials
+- VPN connections with intermittent connectivity
+- Microsoft Outlook/ActiveSync authentication retries
+
+## Related Sigma Rule
+sigma/rules/win_susp_pth_ntlm_logon_type3.yml (for post-brute-force lateral movement)
+```

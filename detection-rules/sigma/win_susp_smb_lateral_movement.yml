@@ -1,0 +1,75 @@
+title: Suspicious SMB Lateral Movement via Admin Shares
+id: 9b4d7e2f-1a5c-4e8b-9d3f-6c8a2b5e4d9f
+status: stable
+description: |
+  Detects suspicious access to administrative SMB shares (ADMIN$, C$, IPC$)
+  from non-system accounts or unusual sources. Adversaries use native Windows
+  utilities (PsExec, WMI, PowerShell) to move laterally via SMB by connecting
+  to remote admin shares for execution, file access, or credential theft.
+  This rule correlates Windows Event ID 4624 (Logon) and 5140 (Network Share Access)
+  to identify potential lateral movement.
+references:
+  - https://attack.mitre.org/techniques/T1021/002/
+  - https://attack.mitre.org/techniques/T1021/
+  - https://www.sans.org/white-papers/lateral-movement/
+author: Maher Mansour Mahyoub Ghaleb
+date: 2025/11/15
+modified: 2025/11/15
+tags:
+  - attack.lateral_movement
+  - attack.t1021.002
+  - attack.t1021
+  - attack.t1570
+logsource:
+  product: windows
+  category: logon
+  service: null
+detection:
+  selection_successful_logon:
+    EventID: 4624
+    LogonType:
+      - '3'
+      - '10'
+  selection_admin_shares:
+    EventID: 5140
+    ShareName|contains:
+      - '\\*\ADMIN$'
+      - '\\*\C$'
+      - '\\*\IPC$'
+  suspicious_sources:
+    IpAddress|startswith:
+      - '192.168.2.50'
+      - '10.'
+      - '172.16.'
+      - '172.17.'
+      - '172.18.'
+      - '172.19.'
+      - '172.20.'
+      - '172.21.'
+      - '172.22.'
+      - '172.23.'
+      - '172.24.'
+      - '172.25.'
+      - '172.26.'
+      - '172.27.'
+      - '172.28.'
+      - '172.29.'
+      - '172.30.'
+      - '172.31.'
+  filter_local_computer:
+    SubjectUserName|endswith: '$'
+  condition: selection_successful_logon and suspicious_sources and not filter_local_computer
+fields:
+  - SubjectUserName
+  - TargetUserName
+  - Computer
+  - IpAddress
+  - LogonType
+  - AuthenticationPackageName
+falsepositives:
+  - Legitimate administrator activity via remote management tools
+  - SCCM/Configuration Manager client push
+  - Backup software accessing remote shares
+  - Domain controller replication traffic
+level: high
+---
